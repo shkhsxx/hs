@@ -108,11 +108,9 @@ def generate_gemini_report(api_key: str, data_summary: str) -> str:
     except ImportError:
         return "오류: `google-generativeai` 패키지가 설치되지 않았습니다. `pip install google-generativeai`를 실행하세요."
 
-    try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.5-flash-lite")
+    import time
 
-        prompt = f"""당신은 전문 비즈니스 분석가입니다.
+    prompt = f"""당신은 전문 비즈니스 분석가입니다.
 아래 쇼핑몰 판매 데이터를 분석하여 한국어로 전문적인 요약 보고서를 작성해 주세요.
 
 [판매 데이터 요약]
@@ -128,10 +126,32 @@ def generate_gemini_report(api_key: str, data_summary: str) -> str:
 
 각 섹션을 명확하게 구분하고 구체적인 수치를 인용하여 분석해 주세요.
 """
-        response = model.generate_content(prompt)
-        return response.text
+
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-2.0-flash-lite")
+
+        for attempt in range(3):
+            try:
+                response = model.generate_content(prompt)
+                return response.text
+            except Exception as e:
+                err_str = str(e)
+                # 429 quota 오류 → retry_delay 파싱 후 대기
+                if "429" in err_str or "quota" in err_str.lower():
+                    import re
+                    delay_match = re.search(r"retry.*?(\d+).*?second", err_str, re.IGNORECASE)
+                    wait = int(delay_match.group(1)) + 2 if delay_match else 30
+                    if attempt < 2:
+                        time.sleep(wait)
+                        continue
+                    return (
+                        f"⚠️ API 요청 한도 초과입니다. {wait}초 후 다시 시도해 주세요.\n\n"
+                        f"(무료 티어 한도: 1,500회/일, 15회/분)"
+                    )
+                return f"Gemini API 호출 오류: {e}"
     except Exception as e:
-        return f"Gemini API 호출 오류: {e}"
+        return f"Gemini API 설정 오류: {e}"
 
 
 def _get_korean_font() -> str:
